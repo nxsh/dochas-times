@@ -39,15 +39,21 @@ async function fetchAndStoreFeed(db: D1Database, source: Source): Promise<number
 
   if (entries.length === 0) return 0;
 
-  // Get existing guids for this source to dedup
+  // Get existing guids for this source to dedup — batch to avoid SQLite variable limit
+  const existingGuids = new Set<string>();
   const guids = entries.map((e) => e.guid);
-  const placeholders = guids.map(() => '?').join(',');
-  const existing = await db
-    .prepare(`SELECT external_guid FROM story WHERE source_id = ? AND external_guid IN (${placeholders})`)
-    .bind(source.id, ...guids)
-    .all<{ external_guid: string }>();
-
-  const existingGuids = new Set((existing.results || []).map((r) => r.external_guid));
+  const batchSize = 20;
+  for (let i = 0; i < guids.length; i += batchSize) {
+    const batch = guids.slice(i, i + batchSize);
+    const placeholders = batch.map(() => '?').join(',');
+    const existing = await db
+      .prepare(`SELECT external_guid FROM story WHERE source_id = ? AND external_guid IN (${placeholders})`)
+      .bind(source.id, ...batch)
+      .all<{ external_guid: string }>();
+    for (const r of existing.results || []) {
+      existingGuids.add(r.external_guid);
+    }
+  }
 
   let inserted = 0;
   for (const entry of entries) {
