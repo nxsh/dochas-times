@@ -10,7 +10,8 @@ stories.get('/stories', async (c) => {
   const category = c.req.query('category');
   const cursor = c.req.query('cursor');
   const limitParam = c.req.query('limit');
-  const limit = limitParam ? parseInt(limitParam, 10) : 20;
+  const parsedLimit = limitParam ? parseInt(limitParam, 10) : 20;
+  const limit = Number.isNaN(parsedLimit) ? 20 : Math.min(Math.max(parsedLimit, 1), 100);
 
   if (category && !CATEGORIES.includes(category as any)) {
     return c.json({ error: 'Invalid category' }, 400);

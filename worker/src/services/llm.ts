@@ -58,7 +58,7 @@ Title: ${title}
 Body: ${body}`;
 }
 
-function parseResponse(raw: string): ScreeningResult {
+export function parseResponse(raw: string): ScreeningResult {
   // Strip markdown code fences if present
   let cleaned = raw.trim();
   // Remove code fences anywhere in the string

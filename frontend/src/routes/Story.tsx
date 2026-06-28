@@ -1,4 +1,5 @@
-import { useParams, Link, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { CATEGORY_STYLES } from '../components/CategoryFilter';
@@ -11,6 +12,13 @@ export default function StoryPage() {
     queryFn: () => api.getStory(id!),
     enabled: !!id,
   });
+
+  // External URLs need window.location for cross-origin redirect
+  useEffect(() => {
+    if (story?.origin === 'aggregated' && story.external_url) {
+      window.location.href = story.external_url;
+    }
+  }, [story]);
 
   if (isLoading) {
     return <div className="text-center py-12 text-warm-gray">Loading...</div>;
@@ -26,7 +34,7 @@ export default function StoryPage() {
   }
 
   if (story.origin === 'aggregated' && story.external_url) {
-    return <Navigate to={story.external_url} replace />;
+    return <div className="text-center py-12 text-warm-gray">Redirecting to original article...</div>;
   }
 
   return (

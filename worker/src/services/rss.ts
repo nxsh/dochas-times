@@ -14,7 +14,7 @@ const parser = new XMLParser({
   textNodeName: '#text',
 });
 
-function normaliseDate(raw: string | undefined): string {
+export function normaliseDate(raw: string | undefined): string {
   if (!raw) return new Date().toISOString();
   const d = new Date(raw);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
@@ -28,7 +28,7 @@ function textOf(node: unknown): string {
   return String(node ?? '');
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
 }
 

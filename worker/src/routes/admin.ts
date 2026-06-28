@@ -1,13 +1,14 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { Env, User } from '../types';
 import { fetchSingleSource } from '../cron/ingest';
 
 const admin = new Hono<{ Bindings: Env }>();
 
-function requireAdmin(user: User | undefined): Response | null {
-  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+function requireAdmin(c: Context<{ Bindings: Env }>): Response | null {
+  const user = c.get('user') as User | undefined;
+  if (!user) return c.json({ error: 'Unauthorized' }, 401) as unknown as Response;
   if (user.role !== 'admin' && user.role !== 'editor') {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+    return c.json({ error: 'Forbidden' }, 403) as unknown as Response;
   }
   return null;
 }
@@ -15,7 +16,7 @@ function requireAdmin(user: User | undefined): Response | null {
 // ---- Sources ----
 
 admin.get('/admin/sources', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const result = await c.env.DB.prepare('SELECT * FROM source ORDER BY name ASC').all();
@@ -23,7 +24,7 @@ admin.get('/admin/sources', async (c) => {
 });
 
 admin.post('/admin/sources', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const body = await c.req.json<{
@@ -55,7 +56,7 @@ admin.post('/admin/sources', async (c) => {
 });
 
 admin.put('/admin/sources/:id', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const id = c.req.param('id');
@@ -98,7 +99,7 @@ admin.put('/admin/sources/:id', async (c) => {
 });
 
 admin.delete('/admin/sources/:id', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const id = c.req.param('id');
@@ -107,7 +108,7 @@ admin.delete('/admin/sources/:id', async (c) => {
 });
 
 admin.post('/admin/sources/:id/fetch', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const id = c.req.param('id');
@@ -124,7 +125,7 @@ admin.post('/admin/sources/:id/fetch', async (c) => {
 // ---- Review Queue ----
 
 admin.get('/admin/review-queue', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const result = await c.env.DB
@@ -143,7 +144,7 @@ admin.get('/admin/review-queue', async (c) => {
 });
 
 admin.post('/admin/stories/:id/publish', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const id = c.req.param('id');
@@ -166,7 +167,7 @@ admin.post('/admin/stories/:id/publish', async (c) => {
 });
 
 admin.post('/admin/stories/:id/reject', async (c) => {
-  const denied = requireAdmin(c.get('user') as User | undefined);
+  const denied = requireAdmin(c);
   if (denied) return denied;
 
   const id = c.req.param('id');

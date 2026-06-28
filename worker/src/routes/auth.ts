@@ -72,7 +72,15 @@ auth.get('/auth/me', async (c) => {
 });
 
 auth.post('/auth/logout', async (c) => {
-  const sessionToken = getCookie(c, 'session');
+  // Support both Bearer token and cookie-based logout
+  let sessionToken: string | undefined;
+  const authHeader = c.req.header('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    sessionToken = authHeader.slice(7);
+  } else {
+    sessionToken = getCookie(c, 'session');
+  }
+
   if (sessionToken) {
     await deleteSession(c.env.DB, sessionToken);
     deleteCookie(c, 'session', { path: '/' });
