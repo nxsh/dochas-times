@@ -61,7 +61,13 @@ Body: ${body}`;
 function parseResponse(raw: string): ScreeningResult {
   // Strip markdown code fences if present
   let cleaned = raw.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  // Remove code fences anywhere in the string
+  cleaned = cleaned.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+  // Try to extract JSON object if there's surrounding text
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    cleaned = jsonMatch[0];
+  }
 
   const parsed = JSON.parse(cleaned);
 
