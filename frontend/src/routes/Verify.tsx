@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
 
 export default function Verify() {
   const [searchParams] = useSearchParams();
@@ -10,21 +9,37 @@ export default function Verify() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const session = searchParams.get('session');
+    const errorParam = searchParams.get('error');
+
+    if (errorParam) {
+      setError(
+        errorParam === 'invalid_token'
+          ? 'Invalid or expired link. Please try signing in again.'
+          : errorParam === 'token_required'
+            ? 'No token provided.'
+            : 'Verification failed.'
+      );
+      return;
+    }
+
+    if (session) {
+      // Store session token from the redirect
+      localStorage.setItem('session', session);
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      navigate('/', { replace: true });
+      return;
+    }
+
+    // Legacy: handle token param (direct API call)
     const token = searchParams.get('token');
     if (!token) {
       setError('No token provided');
       return;
     }
 
-    api
-      .verifyToken(token)
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['me'] });
-        navigate('/', { replace: true });
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Verification failed');
-      });
+    // Redirect to the worker verify endpoint which will redirect back with session
+    window.location.href = `${import.meta.env.VITE_API_URL || ''}/api/auth/verify?token=${token}`;
   }, [searchParams, navigate, queryClient]);
 
   if (error) {

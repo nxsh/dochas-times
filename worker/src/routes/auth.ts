@@ -41,15 +41,16 @@ auth.post('/auth/magic-link', async (c) => {
 
 auth.get('/auth/verify', async (c) => {
   const token = c.req.query('token');
+  const frontendUrl = c.env.FRONTEND_URL || 'https://dochas-times.pages.dev';
 
   if (!token) {
-    return c.json({ error: 'Token required' }, 400);
+    return c.redirect(`${frontendUrl}/login?error=token_required`);
   }
 
   const result = await verifyMagicLinkToken(c.env.DB, token);
 
   if (!result) {
-    return c.json({ error: 'Invalid or expired token' }, 401);
+    return c.redirect(`${frontendUrl}/login?error=invalid_token`);
   }
 
   const user = await upsertUser(c.env.DB, result.email);
@@ -58,15 +59,8 @@ auth.get('/auth/verify', async (c) => {
 
   await createSession(c.env.DB, user.id, sessionToken, sessionExpires);
 
-  setCookie(c, 'session', sessionToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'None',
-    path: '/',
-    maxAge: 30 * 24 * 60 * 60,
-  });
-
-  return c.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  // Redirect to frontend with session token — frontend stores it
+  return c.redirect(`${frontendUrl}/verify?session=${sessionToken}`);
 });
 
 auth.get('/auth/me', async (c) => {

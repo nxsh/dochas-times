@@ -1,11 +1,15 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const sessionToken = localStorage.getItem('session');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
   const res = await fetch(`${API_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     ...options,
   });
 
@@ -43,7 +47,10 @@ export const api = {
 
   getMe: () => fetchApi<{ user: import('./types').User }>('/api/auth/me'),
 
-  logout: () => fetchApi<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  logout: () => {
+    localStorage.removeItem('session');
+    return fetchApi<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+  },
 
   // Admin: Sources
   getSources: () => fetchApi<{ sources: import('./types').Source[] }>('/api/admin/sources'),
