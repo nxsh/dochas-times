@@ -110,7 +110,15 @@ npm run test:watch # Watch mode
 - Engagement features (upvotes visible but not yet interactive from frontend)
 - Multi-patch support
 - Contributor profiles and notifications
-- Rate limiting on auth endpoints
+
+## Tech Debt
+
+- [ ] Rate limiting on `/api/auth/magic-link` — currently no limit, can be spammed
+- [ ] CORS locked down — currently allows any origin, needs restricting to production domain
+- [ ] Email delivery for magic links — currently logged to console only (see below)
+- [ ] Expired session cleanup — sessions accumulate in D1, need a daily cron to purge
+- [ ] Newsletter export — fastest monetisation path per spec, not yet built
+- [ ] Witney Gazette RSS — disabled, their /rss/ URL is an HTML page not a feed. Need to find actual feed URL or remove.
 
 ## Architecture
 
