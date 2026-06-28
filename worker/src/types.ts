@@ -1,7 +1,9 @@
 export interface Env {
   DB: D1Database;
   ANTHROPIC_API_KEY: string;
+  RESEND_API_KEY?: string;
   FRONTEND_URL?: string;
+  WORKER_URL?: string;
 }
 
 export type Role = 'reader' | 'contributor' | 'editor' | 'admin';

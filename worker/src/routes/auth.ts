@@ -8,6 +8,7 @@ import {
   createSession,
   deleteSession,
 } from '../db/queries';
+import { sendMagicLinkEmail } from '../services/email';
 
 const auth = new Hono<{ Bindings: Env }>();
 
@@ -32,11 +33,22 @@ auth.post('/auth/magic-link', async (c) => {
 
   await createMagicLinkToken(c.env.DB, email, token, expiresAt);
 
-  // For dev, log the magic link. Replace with Resend later.
-  const magicLink = `${c.req.header('origin') || 'http://localhost:5173'}/verify?token=${token}`;
+  const frontendUrl = c.env.FRONTEND_URL || c.req.header('origin') || 'https://dochas-times.pages.dev';
+  const magicLink = `${c.env.WORKER_URL || 'https://dochas-api.ryan-nash43.workers.dev'}/api/auth/verify?token=${token}`;
+
+  if (c.env.RESEND_API_KEY) {
+    try {
+      await sendMagicLinkEmail(c.env.RESEND_API_KEY, email, magicLink);
+    } catch (err) {
+      console.error('Failed to send magic link email:', err);
+      // Fall through — still log it as backup
+    }
+  }
+
+  // Always log as backup
   console.log(`[MAGIC LINK] ${email}: ${magicLink}`);
 
-  return c.json({ ok: true, message: 'If that email is registered, a magic link has been sent.' });
+  return c.json({ ok: true, message: 'Check your email for a sign-in link.' });
 });
 
 auth.get('/auth/verify', async (c) => {
