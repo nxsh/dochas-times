@@ -20,6 +20,22 @@ export default function Navbar() {
           </h1>
         </Link>
         <div className="flex items-center gap-4 text-sm">
+          {user && (user.role === 'admin' || user.role === 'editor') && (
+            <>
+              <Link
+                to="/admin/review"
+                className="text-deep-green hover:text-deep-green-light font-medium transition-colors"
+              >
+                Review Queue
+              </Link>
+              <Link
+                to="/admin/sources"
+                className="text-deep-green hover:text-deep-green-light font-medium transition-colors"
+              >
+                Sources
+              </Link>
+            </>
+          )}
           {user ? (
             <span className="text-warm-gray">{user.email}</span>
           ) : (

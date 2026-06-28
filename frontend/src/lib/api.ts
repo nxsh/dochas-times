@@ -44,4 +44,38 @@ export const api = {
   getMe: () => fetchApi<{ user: import('./types').User }>('/api/auth/me'),
 
   logout: () => fetchApi<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+
+  // Admin: Sources
+  getSources: () => fetchApi<{ sources: import('./types').Source[] }>('/api/admin/sources'),
+
+  addSource: (data: { name: string; type: string; feed_url: string; url?: string; terms_ok?: boolean }) =>
+    fetchApi<{ source: import('./types').Source }>('/api/admin/sources', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateSource: (id: string, data: Partial<{ name: string; type: string; feed_url: string; url: string; terms_ok: boolean; active: boolean }>) =>
+    fetchApi<{ source: import('./types').Source }>(`/api/admin/sources/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteSource: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/api/admin/sources/${id}`, { method: 'DELETE' }),
+
+  fetchSource: (id: string) =>
+    fetchApi<{ ok: boolean; fetched: number }>(`/api/admin/sources/${id}/fetch`, { method: 'POST' }),
+
+  // Admin: Review Queue
+  getReviewQueue: () =>
+    fetchApi<{ stories: import('./types').ReviewStory[] }>('/api/admin/review-queue'),
+
+  publishStory: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/api/admin/stories/${id}/publish`, { method: 'POST' }),
+
+  rejectStory: (id: string, reason?: string) =>
+    fetchApi<{ ok: boolean }>(`/api/admin/stories/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
 };

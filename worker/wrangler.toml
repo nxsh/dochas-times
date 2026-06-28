@@ -2,7 +2,10 @@ name = "dochas-api"
 main = "src/index.ts"
 compatibility_date = "2024-06-20"
 
+[triggers]
+crons = ["*/30 * * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "dochas-times"
-database_id = "PLACEHOLDER"
+database_id = "1620b1af-0ac5-4858-830d-c71fa065a428"

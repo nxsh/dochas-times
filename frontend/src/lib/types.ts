@@ -30,3 +30,31 @@ export interface User {
   name: string | null;
   role: string;
 }
+
+export interface Source {
+  id: string;
+  name: string;
+  type: string;
+  url: string;
+  feed_url: string;
+  terms_ok: number;
+  active: number;
+  last_fetched_at: string | null;
+  created_at: string;
+}
+
+export interface AiScreening {
+  is_positive: boolean;
+  category: string;
+  valence_score: number;
+  locality: string;
+  why_one_line: string;
+  suggested_headline: string;
+  flags: string[];
+  needs_human_check: boolean;
+}
+
+export interface ReviewStory extends Story {
+  ai_screening: string | null;
+  flags: string;
+}

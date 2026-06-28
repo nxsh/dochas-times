@@ -5,6 +5,7 @@ import StoryPage from './routes/Story';
 import Login from './routes/Login';
 import Verify from './routes/Verify';
 import ReviewQueue from './routes/admin/ReviewQueue';
+import Sources from './routes/admin/Sources';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/verify" element={<Verify />} />
           <Route path="/admin/review" element={<ReviewQueue />} />
+          <Route path="/admin/sources" element={<Sources />} />
         </Route>
       </Routes>
     </BrowserRouter>
