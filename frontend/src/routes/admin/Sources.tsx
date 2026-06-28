@@ -135,11 +135,11 @@ export default function Sources() {
         {sources.map((source: Source) => (
           <div
             key={source.id}
-            className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between"
+            className="bg-white border border-gray-200 rounded-lg p-4"
           >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-medium text-gray-900">{source.name}</h3>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <h3 className="font-medium text-gray-900">{source.name}</h3>
+              <div className="flex gap-1.5 flex-shrink-0">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   source.active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'
                 }`}>
@@ -149,14 +149,14 @@ export default function Sources() {
                   {source.type}
                 </span>
               </div>
-              <p className="text-sm text-warm-gray truncate mt-1">{source.feed_url}</p>
-              {source.last_fetched_at && (
-                <p className="text-xs text-warm-gray mt-1">
-                  Last fetched: {new Date(source.last_fetched_at).toLocaleString()}
-                </p>
-              )}
             </div>
-            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+            <p className="text-sm text-warm-gray truncate">{source.feed_url}</p>
+            {source.last_fetched_at && (
+              <p className="text-xs text-warm-gray mt-1">
+                Last fetched: {new Date(source.last_fetched_at).toLocaleString()}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
               <button
                 onClick={() => fetchMutation.mutate(source.id)}
                 disabled={fetchMutation.isPending}
