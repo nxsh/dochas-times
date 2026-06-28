@@ -2,8 +2,9 @@ name = "dochas-api"
 main = "src/index.ts"
 compatibility_date = "2024-06-20"
 
-[triggers]
-crons = ["*/30 * * * *"]
+# Cron disabled — use manual fetch via admin UI for now
+# [triggers]
+# crons = ["*/30 * * * *"]
 
 [[d1_databases]]
 binding = "DB"
