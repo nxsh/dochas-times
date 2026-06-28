@@ -140,12 +140,13 @@ async function applyScreeningResult(
   const newStatus = autoPublish ? 'published' : 'ai_screened';
 
   // Store screening result in ai_screening table
+  const screeningId = generateId();
   await db
     .prepare(
-      `INSERT INTO ai_screening (story_id, raw_json, model_version)
-       VALUES (?, ?, 'claude-haiku-4-5-20251001')`
+      `INSERT INTO ai_screening (id, story_id, raw_json, model_version)
+       VALUES (?, ?, ?, 'claude-haiku-4-5-20251001')`
     )
-    .bind(storyId, screeningJson)
+    .bind(screeningId, storyId, screeningJson)
     .run();
 
   // Update story with scores and status

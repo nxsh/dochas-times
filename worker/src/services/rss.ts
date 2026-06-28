@@ -79,6 +79,7 @@ export async function fetchFeed(feedUrl: string): Promise<FeedEntry[]> {
     const res = await fetch(feedUrl, {
       signal: controller.signal,
       headers: { 'User-Agent': 'DochasTimes/1.0 RSS Aggregator' },
+      redirect: 'follow',
     });
 
     if (!res.ok) {
