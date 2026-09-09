@@ -20,6 +20,19 @@ interface PendingStory {
   source_name?: string;
 }
 
+// Only ingest feed entries published within this window. Feeds routinely carry
+// months of history, and a story nobody screened within MAX_QUEUE_AGE_DAYS is
+// too stale to publish anyway — filtering here stops the queue growing at source.
+const MAX_ENTRY_AGE_DAYS = 7;
+
+// Anything still unscreened after this long gets expired by sweepStaleQueue().
+const MAX_QUEUE_AGE_DAYS = 14;
+
+// Stories screened per run. Must comfortably exceed the daily arrival rate or
+// the queue grows without bound. Each one is an LLM call, so raising this costs
+// money and subrequests, not D1 reads.
+const SCREEN_BATCH_SIZE = 60;
+
 function generateId(): string {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
@@ -36,6 +49,17 @@ async function fetchAndStoreFeed(db: D1Database, source: Source): Promise<number
     console.error(`Failed to fetch feed ${source.name}:`, err);
     return 0;
   }
+
+  if (entries.length === 0) return 0;
+
+  // Drop anything older than the ingest window before it can reach the queue.
+  // normaliseDate() falls back to now() for missing/unparseable dates, so entries
+  // without a usable pubDate are kept rather than silently dropped.
+  const cutoff = Date.now() - MAX_ENTRY_AGE_DAYS * 86400 * 1000;
+  entries = entries.filter((e) => {
+    const t = Date.parse(e.pubDate);
+    return isNaN(t) || t >= cutoff;
+  });
 
   if (entries.length === 0) return 0;
 
@@ -89,9 +113,10 @@ async function screenPendingStories(db: D1Database, apiKey: string): Promise<voi
        FROM story s
        LEFT JOIN source src ON s.source_id = src.id
        WHERE s.status = 'submitted' AND s.origin = 'aggregated'
-       ORDER BY s.created_at ASC
-       LIMIT 20`
+       ORDER BY s.created_at DESC
+       LIMIT ?`
     )
+    .bind(SCREEN_BATCH_SIZE)
     .all<PendingStory>();
 
   const stories = pending.results || [];
@@ -180,6 +205,28 @@ async function applyScreeningResult(
     .run();
 }
 
+// Expire anything that has sat unscreened past the queue window. Without this the
+// 'submitted' queue is unbounded: screening drains SCREEN_BATCH_SIZE per run while
+// every run adds more, and whatever falls behind stays forever.
+// Rows are marked rejected, never deleted — dedup matches on external_guid, so
+// deleting them would make the next fetch re-insert every one.
+async function sweepStaleQueue(db: D1Database): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE story
+       SET status = 'rejected',
+           rejection_reason = 'expired_unscreened',
+           updated_at = datetime('now')
+       WHERE status = 'submitted'
+         AND origin = 'aggregated'
+         AND created_at < datetime('now', ?)`
+    )
+    .bind(`-${MAX_QUEUE_AGE_DAYS} days`)
+    .run();
+
+  return result.meta?.changes ?? 0;
+}
+
 export async function runIngestion(db: D1Database, apiKey: string): Promise<{ fetched: number; screened: boolean }> {
   // Step 1: Fetch active sources
   const sources = await db
@@ -197,8 +244,13 @@ export async function runIngestion(db: D1Database, apiKey: string): Promise<{ fe
     totalInserted += count;
   }
 
-  // Step 3: Screen pending stories
+  // Step 3: Screen pending stories — newest first, so fresh news gets published
+  // while stale entries age out via the sweep below rather than blocking the queue.
   await screenPendingStories(db, apiKey);
+
+  // Step 4: Expire whatever aged out of the queue window
+  const expired = await sweepStaleQueue(db);
+  if (expired > 0) console.log(`[ingest] Expired ${expired} unscreened stories`);
 
   return { fetched: totalInserted, screened: true };
 }

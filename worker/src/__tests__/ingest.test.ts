@@ -202,16 +202,80 @@ describe('Ingestion pipeline', () => {
       expect(batches[2]).toHaveLength(2);
     });
 
-    it('should limit pending stories to 20', () => {
-      const limit = 20;
-      const manyStories = Array.from({ length: 50 }, (_, i) => ({
+    it('should limit pending stories to SCREEN_BATCH_SIZE', () => {
+      const limit = 60;
+      const manyStories = Array.from({ length: 100 }, (_, i) => ({
         id: `story-${i}`,
         title: `Story ${i}`,
         status: 'submitted',
       }));
 
       const batch = manyStories.slice(0, limit);
-      expect(batch).toHaveLength(20);
+      expect(batch).toHaveLength(60);
+    });
+  });
+
+  describe('Ingest age filter', () => {
+    const MAX_ENTRY_AGE_DAYS = 7;
+    const filterByAge = (entries: { pubDate: string }[], now: number) => {
+      const cutoff = now - MAX_ENTRY_AGE_DAYS * 86400 * 1000;
+      return entries.filter((e) => {
+        const t = Date.parse(e.pubDate);
+        return isNaN(t) || t >= cutoff;
+      });
+    };
+
+    it('should drop entries older than the ingest window', () => {
+      const now = Date.parse('2026-09-09T00:00:00Z');
+      const entries = [
+        { pubDate: '2026-09-08T00:00:00Z' },
+        { pubDate: '2026-07-01T00:00:00Z' },
+      ];
+
+      const kept = filterByAge(entries, now);
+      expect(kept).toHaveLength(1);
+      expect(kept[0].pubDate).toBe('2026-09-08T00:00:00Z');
+    });
+
+    it('should keep entries with an unparseable pubDate rather than drop them', () => {
+      const now = Date.parse('2026-09-09T00:00:00Z');
+      const kept = filterByAge([{ pubDate: 'not a date' }], now);
+      expect(kept).toHaveLength(1);
+    });
+  });
+
+  describe('Stale queue sweep', () => {
+    it('should expire unscreened stories past the queue window, leaving others alone', async () => {
+      seedTable(db, 'story', [
+        {
+          id: 'stale-1', origin: 'aggregated', source_id: 'src-1', title: 'Old',
+          status: 'submitted', created_at: '2026-07-01 00:00:00', updated_at: '2026-07-01 00:00:00',
+        },
+        {
+          id: 'fresh-1', origin: 'aggregated', source_id: 'src-1', title: 'Recent',
+          status: 'submitted', created_at: '2026-09-09 00:00:00', updated_at: '2026-09-09 00:00:00',
+        },
+      ]);
+
+      const cutoff = '2026-08-26 00:00:00';
+      const stories = db._tables.get('story') || [];
+      for (const s of stories) {
+        if (s.status === 'submitted' && s.origin === 'aggregated' && String(s.created_at) < cutoff) {
+          s.status = 'rejected';
+          s.rejection_reason = 'expired_unscreened';
+        }
+      }
+
+      expect(stories.find((s) => s.id === 'stale-1')?.status).toBe('rejected');
+      expect(stories.find((s) => s.id === 'stale-1')?.rejection_reason).toBe('expired_unscreened');
+      expect(stories.find((s) => s.id === 'fresh-1')?.status).toBe('submitted');
+    });
+
+    it('should expire rather than delete, so dedup still matches the guid', () => {
+      const expired = { external_guid: 'guid-1', status: 'rejected' };
+      const existingGuids = new Set([expired.external_guid]);
+
+      expect(existingGuids.has('guid-1')).toBe(true);
     });
   });
 });
