@@ -1,3 +1,21 @@
+// Screening produced nothing from 2026-07-16 to 2026-09-12 because the shared
+// Anthropic key ran out of credits and every failure looked like a generic API
+// error. Name the causes that are specific and actionable so the reason is
+// obvious from the log line alone. The same helper exists in Receipt Splitter
+// and the EN->LV translator, which share this key and were equally dead.
+export function describeAnthropicFailure(status: number, body: string): string {
+  const b = body.toLowerCase();
+  if (b.includes('credit balance')) {
+    return 'ANTHROPIC CREDIT BALANCE EXHAUSTED — top up at console.anthropic.com. This key is shared with Receipt Splitter and the EN->LV translator, so those are down too.';
+  }
+  if (status === 401 || b.includes('authentication_error')) {
+    return 'ANTHROPIC API KEY INVALID OR REVOKED — check the ANTHROPIC_API_KEY secret on the worker.';
+  }
+  if (status === 429) return 'ANTHROPIC RATE LIMIT — retry shortly.';
+  if (status === 529 || status === 503) return 'ANTHROPIC OVERLOADED — retry shortly.';
+  return `Anthropic API error ${status}`;
+}
+
 export interface ScreeningResult {
   is_positive: boolean;
   category: string;
@@ -112,7 +130,7 @@ export async function screenStory(
 
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${errBody}`);
+    throw new Error(`${describeAnthropicFailure(res.status, errBody)} | upstream ${res.status}: ${errBody}`);
   }
 
   const data = (await res.json()) as {
