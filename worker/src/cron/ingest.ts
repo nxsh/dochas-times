@@ -20,6 +20,26 @@ interface PendingStory {
   source_name?: string;
 }
 
+// Only ingest feed entries published within this window. Feeds routinely carry
+// months of history, and a story nobody screened within MAX_QUEUE_AGE_DAYS is
+// too stale to publish anyway — filtering here stops the queue growing at source.
+const MAX_ENTRY_AGE_DAYS = 7;
+
+// Anything still unscreened after this long gets expired by sweepStaleQueue().
+const MAX_QUEUE_AGE_DAYS = 14;
+
+// Screened stories awaiting human review expire too. Without this the review
+// queue is the same unbounded bucket one stage later: it reached 4,960 items
+// against 425 ever published, because nothing drained it and nothing aged out.
+// Longer than the unscreened window — these have passed the rubric and deserve
+// a real chance at review before being dropped.
+const MAX_REVIEW_AGE_DAYS = 30;
+
+// Stories screened per run. Must comfortably exceed the daily arrival rate or
+// the queue grows without bound. Each one is an LLM call, so raising this costs
+// money and subrequests, not D1 reads.
+const SCREEN_BATCH_SIZE = 60;
+
 function generateId(): string {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
@@ -36,6 +56,17 @@ async function fetchAndStoreFeed(db: D1Database, source: Source): Promise<number
     console.error(`Failed to fetch feed ${source.name}:`, err);
     return 0;
   }
+
+  if (entries.length === 0) return 0;
+
+  // Drop anything older than the ingest window before it can reach the queue.
+  // normaliseDate() falls back to now() for missing/unparseable dates, so entries
+  // without a usable pubDate are kept rather than silently dropped.
+  const cutoff = Date.now() - MAX_ENTRY_AGE_DAYS * 86400 * 1000;
+  entries = entries.filter((e) => {
+    const t = Date.parse(e.pubDate);
+    return isNaN(t) || t >= cutoff;
+  });
 
   if (entries.length === 0) return 0;
 
@@ -82,20 +113,30 @@ async function fetchAndStoreFeed(db: D1Database, source: Source): Promise<number
   return inserted;
 }
 
-async function screenPendingStories(db: D1Database, apiKey: string): Promise<void> {
+interface ScreenOutcome {
+  attempted: number;
+  screened: number;
+  failed: number;
+}
+
+async function screenPendingStories(db: D1Database, apiKey: string): Promise<ScreenOutcome> {
   const pending = await db
     .prepare(
       `SELECT s.id, s.title, s.snippet, s.body, s.origin, s.source_id, src.name as source_name
        FROM story s
        LEFT JOIN source src ON s.source_id = src.id
        WHERE s.status = 'submitted' AND s.origin = 'aggregated'
-       ORDER BY s.created_at ASC
-       LIMIT 20`
+       ORDER BY s.created_at DESC
+       LIMIT ?`
     )
+    .bind(SCREEN_BATCH_SIZE)
     .all<PendingStory>();
 
   const stories = pending.results || [];
-  if (stories.length === 0) return;
+  if (stories.length === 0) return { attempted: 0, screened: 0, failed: 0 };
+
+  let screened = 0;
+  const failures: string[] = [];
 
   // Process in batches of 5
   for (let i = 0; i < stories.length; i += 5) {
@@ -118,13 +159,36 @@ async function screenPendingStories(db: D1Database, apiKey: string): Promise<voi
     for (const settled of results) {
       if (settled.status === 'rejected') {
         console.error('Screening failed:', settled.reason);
+        failures.push(String(settled.reason));
         continue;
       }
 
       const { story, result } = settled.value;
       await applyScreeningResult(db, story.id, result);
+      screened++;
+    }
+
+    // Every call failing means the problem is upstream of any single story —
+    // an expired key, exhausted credits, a model rename. Screening silently
+    // returned zero results for two months this way (Jul-Sep 2026) because each
+    // failure was logged individually and nothing summarised the run. Stop early
+    // and say so loudly rather than burning the rest of the batch on the same error.
+    if (screened === 0 && failures.length >= 5) {
+      console.error(
+        `[ingest] ABORTING: first ${failures.length} screening calls all failed. ` +
+        `This is not a per-story problem. First error: ${failures[0]}`
+      );
+      break;
     }
   }
+
+  if (failures.length > 0) {
+    console.error(
+      `[ingest] screening: ${screened} ok, ${failures.length} failed of ${stories.length} attempted`
+    );
+  }
+
+  return { attempted: stories.length, screened, failed: failures.length };
 }
 
 async function applyScreeningResult(
@@ -180,7 +244,60 @@ async function applyScreeningResult(
     .run();
 }
 
-export async function runIngestion(db: D1Database, apiKey: string): Promise<{ fetched: number; screened: boolean }> {
+// Expire anything that has sat unscreened past the queue window. Without this the
+// 'submitted' queue is unbounded: screening drains SCREEN_BATCH_SIZE per run while
+// every run adds more, and whatever falls behind stays forever.
+// Rows are marked rejected, never deleted — dedup matches on external_guid, so
+// deleting them would make the next fetch re-insert every one.
+async function sweepStaleQueue(db: D1Database): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE story
+       SET status = 'rejected',
+           rejection_reason = 'expired_unscreened',
+           updated_at = datetime('now')
+       WHERE status = 'submitted'
+         AND origin = 'aggregated'
+         AND created_at < datetime('now', ?)`
+    )
+    .bind(`-${MAX_QUEUE_AGE_DAYS} days`)
+    .run();
+
+  return result.meta?.changes ?? 0;
+}
+
+// The review queue needs the same treatment, but not indiscriminately.
+//
+// It reached 4,960 items, and 3,650 of those scored 2 or below — they were only
+// in the queue because they are not auto-publishable, not because anyone wanted
+// to read them. Those are what makes the queue unbounded, and they expire.
+//
+// A story that scored REVIEW_KEEP_SCORE or above passed the rubric and is a real
+// editorial candidate; ageing it out silently would throw away the only content
+// worth reviewing. Those stay until a human decides, by design.
+//
+// Human submissions never expire — a submission is someone's own story.
+const REVIEW_KEEP_SCORE = 6;
+
+async function sweepStaleReviewQueue(db: D1Database): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE story
+       SET status = 'rejected',
+           rejection_reason = 'expired_unreviewed',
+           updated_at = datetime('now')
+       WHERE status = 'ai_screened'
+         AND origin = 'aggregated'
+         AND created_at < datetime('now', ?)
+         AND (valence_score IS NULL OR valence_score < ?)`
+    )
+    .bind(`-${MAX_REVIEW_AGE_DAYS} days`, REVIEW_KEEP_SCORE)
+    .run();
+
+  return result.meta?.changes ?? 0;
+}
+
+export async function runIngestion(db: D1Database, apiKey: string): Promise<{ fetched: number; screened: number; screenFailures: number }> {
   // Step 1: Fetch active sources
   const sources = await db
     .prepare('SELECT * FROM source WHERE active = 1')
@@ -197,13 +314,25 @@ export async function runIngestion(db: D1Database, apiKey: string): Promise<{ fe
     totalInserted += count;
   }
 
-  // Step 3: Screen pending stories
-  await screenPendingStories(db, apiKey);
+  // Step 3: Screen pending stories — newest first, so fresh news gets published
+  // while stale entries age out via the sweep below rather than blocking the queue.
+  const outcome = await screenPendingStories(db, apiKey);
+  console.log(
+    `[ingest] screened ${outcome.screened}/${outcome.attempted}` +
+    (outcome.failed ? ` (${outcome.failed} FAILED)` : '')
+  );
 
-  return { fetched: totalInserted, screened: true };
+  // Step 4: Expire whatever aged out of either queue window
+  const expired = await sweepStaleQueue(db);
+  if (expired > 0) console.log(`[ingest] Expired ${expired} unscreened stories`);
+
+  const unreviewed = await sweepStaleReviewQueue(db);
+  if (unreviewed > 0) console.log(`[ingest] Expired ${unreviewed} unreviewed stories`);
+
+  return { fetched: totalInserted, screened: outcome.screened, screenFailures: outcome.failed };
 }
 
-export async function fetchSingleSource(db: D1Database, apiKey: string, sourceId: string): Promise<{ fetched: number }> {
+export async function fetchSingleSource(db: D1Database, apiKey: string, sourceId: string): Promise<{ fetched: number; screened: number; screenFailures: number }> {
   const source = await db
     .prepare('SELECT * FROM source WHERE id = ?')
     .bind(sourceId)
@@ -214,7 +343,7 @@ export async function fetchSingleSource(db: D1Database, apiKey: string, sourceId
   const count = await fetchAndStoreFeed(db, source);
 
   // Screen any new stories from this source
-  await screenPendingStories(db, apiKey);
+  const outcome = await screenPendingStories(db, apiKey);
 
-  return { fetched: count };
+  return { fetched: count, screened: outcome.screened, screenFailures: outcome.failed };
 }

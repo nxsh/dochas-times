@@ -2,9 +2,15 @@ name = "dochas-api"
 main = "src/index.ts"
 compatibility_date = "2024-06-20"
 
-# Cron disabled — use manual fetch via admin UI for now
-# [triggers]
-# crons = ["*/30 * * * *"]
+# The cron is load-bearing: it drives RSS ingest, screening, and both stale-queue
+# sweeps. Without it nothing self-heals and the queues grow until something breaks.
+#
+# Stated explicitly because commenting this block out does NOT remove a schedule —
+# wrangler only adds or updates triggers, never deletes them. A "disable cron"
+# commit in June 2026 therefore had no effect for over two months while prod
+# happily kept running */30. Use `crons = []` to actually remove one.
+[triggers]
+crons = ["*/30 * * * *"]
 
 [[d1_databases]]
 binding = "DB"

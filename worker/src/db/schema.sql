@@ -52,6 +52,10 @@ CREATE INDEX idx_story_status ON story(status);
 CREATE INDEX idx_story_published ON story(published_at DESC) WHERE status = 'published';
 CREATE INDEX idx_story_category ON story(category) WHERE status = 'published';
 CREATE INDEX idx_story_external_guid ON story(external_guid) WHERE external_guid IS NOT NULL;
+-- Serves the ingest screening queue: filter by status+origin and read in created_at
+-- order without a sort. Must NOT be a partial index -- the planner ignores those here
+-- and falls back to idx_story_status + a full temp B-tree sort (145k rows read per call).
+CREATE INDEX idx_story_screen_queue ON story(status, origin, created_at);
 
 CREATE TABLE ai_screening (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
